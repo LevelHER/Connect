@@ -1,0 +1,271 @@
+import {
+  isInRange,
+  getStartOf,
+  isDateSameOrAfter,
+  monthIdString,
+  parseDateFromISO8601,
+  stringifyDateToISO8601,
+  getStartOfWeek,
+  bookingTimeUnits,
+} from '../../../../util/dates';
+
+const HOUR_MINUTES = bookingTimeUnits.hour.timeUnitInMinutes;
+const STEP_MINUTES = bookingTimeUnits.quarterHour.timeUnitInMinutes;
+
+// Marketplace API allows fetching exceptions to 366 days into the future.
+export const MAX_AVAILABILITY_EXCEPTIONS_RANGE = 366;
+const TODAY = new Date();
+
+// Helper for the pickers of DatePicker (weekly and monthly calendars)
+export const getStartOfWeekFn = (currentMoment, timeZone, firstDayOfWeek, offset = 0) => {
+  const startOfWeek = getStartOfWeek(currentMoment, timeZone, firstDayOfWeek);
+  return getStartOf(startOfWeek, 'day', timeZone, offset, 'days');
+};
+
+export const getStartOfNextWeek = (currentMoment, timeZone, firstDayOfWeek, offset = 7) =>
+  getStartOfWeekFn(currentMoment, timeZone, firstDayOfWeek, offset);
+export const getStartOfPrevWeek = (currentMoment, timeZone, firstDayOfWeek, offset = 7) =>
+  getStartOfWeekFn(currentMoment, timeZone, firstDayOfWeek, -1 * offset, 'days');
+
+export const getStartOfMonth = (currentMoment, timeZone, offset = 0) =>
+  getStartOf(currentMoment, 'month', timeZone, offset, 'months');
+export const getStartOfNextMonth = (currentMoment, timeZone, offset = 1) =>
+  getStartOfMonth(currentMoment, timeZone, offset);
+export const getStartOfPrevMonth = (currentMoment, timeZone, offset = 1) =>
+  getStartOfMonth(currentMoment, timeZone, -1 * offset);
+
+export const getExclusiveEndDate = (date, timeZone) => {
+  return getStartOf(date, 'day', timeZone, 1, 'days');
+};
+export const getInclusiveEndDate = (date, timeZone) => {
+  return getStartOf(date, 'day', timeZone, -1, 'days');
+};
+
+// DatePicker returns wrapped date objects
+export const extractDateFromFieldDateInput = dateValue => dateValue?.date || null;
+
+// DatePicker returns wrapped date objects
+export const extractDateFromFieldDateRangeInput = dates => {
+  return dates?.startDate || dates?.endDate ? dates : { startDate: null, endDate: null };
+};
+
+export const endOfAvailabilityExceptionRange = (timeZone, date) => {
+  return getStartOf(date, 'day', timeZone, MAX_AVAILABILITY_EXCEPTIONS_RANGE - 1, 'days');
+};
+
+const endOfRange = (date, dayCountAvailableForBooking, timeZone) =>
+  getStartOf(date, 'day', timeZone, dayCountAvailableForBooking - 1, 'days');
+
+const fetchExceptionData = (
+  date,
+  listingId,
+  timeZone,
+  onFetchExceptions,
+  firstDayOfWeek,
+  isWeekly = true
+) => {
+  const endOfRangeDate = endOfRange(TODAY, MAX_AVAILABILITY_EXCEPTIONS_RANGE, timeZone);
+
+  // Don't fetch timeSlots for past months or too far in the future
+  if (isInRange(date, TODAY, endOfRangeDate)) {
+    // Use "today", if the first day of given month is in the past
+    // TODO
+    const start = isDateSameOrAfter(TODAY, date) ? TODAY : date;
+
+    // Use endOfRangeDate, if the first day of the next date range is too far in the future
+    const nextRangeDate = isWeekly
+      ? getStartOfNextWeek(date, timeZone, firstDayOfWeek)
+      : getStartOfNextMonth(date, timeZone);
+    const end = isDateSameOrAfter(nextRangeDate, endOfRangeDate)
+      ? getStartOf(endOfRangeDate, 'day', timeZone)
+      : nextRangeDate;
+
+    // Fetch time slots for given time range
+    onFetchExceptions({ listingId, isWeekly, start, end, timeZone });
+  }
+};
+
+// Update current week
+// When clicking next or prev buttons on weekly calendar,
+// we fetch data for the week that comes after next week.
+export const handleWeekClick = params => weekFn => {
+  const {
+    currentWeek,
+    setCurrentWeek,
+    weeklyExceptionQueries,
+    listingId,
+    timeZone,
+    onFetchExceptions,
+    firstDayOfWeek,
+  } = params;
+  const updatedWeek = weekFn(currentWeek, timeZone, firstDayOfWeek);
+  setCurrentWeek(updatedWeek);
+
+  // Callback function after the week has been updated.
+  // DatePicker component has next and previous months ready (but inivisible).
+  // we try to populate those invisible months before user advances there.
+  fetchExceptionData(
+    weekFn(currentWeek, timeZone, firstDayOfWeek, 14),
+    listingId,
+    timeZone,
+    onFetchExceptions,
+    firstDayOfWeek
+  );
+
+  // If previous fetch for the week data failed, try again.
+  const weekId = stringifyDateToISO8601(currentWeek, timeZone);
+  const currentWeekData = weeklyExceptionQueries[weekId];
+  if (currentWeekData?.fetchTimeSlotsError) {
+    fetchExceptionData(currentWeek, listingId, timeZone, onFetchExceptions, firstDayOfWeek);
+  }
+};
+
+// Update current month and call callback function.
+// When clicking next or prev buttons on monthly calendar,
+// we fetch data for the month that comes after next month.
+export const handleMonthClick = params => monthFn => {
+  const {
+    currentMonth,
+    setCurrentMonth,
+    monthlyExceptionQueries,
+    listingId,
+    timeZone,
+    onFetchExceptions,
+    onMonthChanged,
+  } = params;
+  const updatedMonth = monthFn(currentMonth, timeZone);
+  setCurrentMonth(updatedMonth);
+
+  // Callback function after month has been updated.
+  // DatePicker component has next and previous months ready (but inivisible).
+  // we try to populate those invisible months before user advances there.
+  fetchExceptionData(
+    monthFn(currentMonth, timeZone, 2),
+    listingId,
+    timeZone,
+    onFetchExceptions,
+    undefined,
+    false
+  );
+
+  // If previous fetch for the month data failed, try again.
+  const monthId = monthIdString(currentMonth, timeZone);
+  const currentMonthData = monthlyExceptionQueries[monthId];
+  if (currentMonthData?.fetchTimeSlotsError) {
+    fetchExceptionData(currentMonth, listingId, timeZone, onFetchExceptions, undefined, false);
+  }
+
+  if (onMonthChanged) {
+    const monthId = monthIdString(updatedMonth, timeZone);
+    onMonthChanged(monthId);
+  }
+};
+
+const getMonthStartInTimeZone = (monthId, timeZone) => {
+  const month = parseDateFromISO8601(`${monthId}-01`, timeZone); // E.g. new Date('2022-12')
+  return getStartOfMonth(month, timeZone);
+};
+// Get the range of months that we have already fetched content
+// (as a reaction to user's Next-button clicks on date picker).
+export const getMonthlyFetchRange = (monthlyExceptionQueries, timeZone) => {
+  const monthStrings = Object.keys(monthlyExceptionQueries).sort();
+  const firstMonth = getMonthStartInTimeZone(monthStrings[0], timeZone);
+  const lastMonth = getMonthStartInTimeZone(monthStrings[monthStrings.length - 1], timeZone);
+  const exclusiveEndMonth = getStartOfNextMonth(lastMonth, timeZone);
+  return [firstMonth, exclusiveEndMonth];
+};
+
+/**
+ * Parse a 'HH:MM' time string into its hour/minute number parts.
+ */
+export const getParsedHourMinutes = time => {
+  const [hourRaw, minutesRaw] = time.split(':');
+  return { hour: Number.parseInt(hourRaw), minutes: Number.parseInt(minutesRaw) };
+};
+
+/**
+ * Total minutes since midnight for a 'HH:MM' time string.
+ */
+export const getTotalMinutesFromTime = time => {
+  const { hour, minutes } = getParsedHourMinutes(time);
+  return hour * 60 + minutes;
+};
+
+/**
+ * Comparator (curried, for Array.prototype.sort) for AvailabilityPlan entries,
+ * ordered by startTime.
+ *
+ * @param {Number} defaultCompareReturn value used when either entry is missing a startTime.
+ *   UI filtering uses -1 to push an unset entry to the front; submit-time sorting and the
+ *   default case use 0 for no-op ordering.
+ */
+export const compareEntriesByStartTime = (defaultCompareReturn = 0) => (a, b) => {
+  if (a.startTime && b.startTime) {
+    return getTotalMinutesFromTime(a.startTime) - getTotalMinutesFromTime(b.startTime);
+  }
+  return defaultCompareReturn;
+};
+
+// Internally, we use 00:00 ... 24:00 mapping for hour strings
+export const printHourStrings = h => (h > 9 ? `${h}:00` : `0${h}:00`);
+
+// Formats a total-minutes-since-midnight value as a zero-padded 'HH:MM' string.
+export const printMinuteString = totalMinutes => {
+  const hour = Math.floor(totalMinutes / HOUR_MINUTES);
+  const minutes = totalMinutes % HOUR_MINUTES;
+  const paddedHour = hour > 9 ? `${hour}` : `0${hour}`;
+  const paddedMinutes = minutes > 9 ? `${minutes}` : `0${minutes}`;
+  return `${paddedHour}:${paddedMinutes}`;
+};
+
+/**
+ * Find all the entries that boundaries are already reserved.
+ *
+ * @param {Array<AvailabilityPlanEntry>} entries look like this [{ startTime: '13:00', endTime: '17:00' }]
+ * @param {Boolean} options.findStartTimes find start times (00:00 ... 23:00) or else (01:00 ... 24:00)
+ * @param {Boolean} options.useIncrementalBoundaries return boundaries in 15 minute increments (00:15 ... 23:45) or in full hours (00:00 ... 23:00)
+ * @returns array of reserved sharp hours (e.g. ['13:00', '14:00', '15:00', '16:00']) or quarter hours (e.g. ['13:00', '13:15', '13:30']).
+ */
+export const getEntryBoundaries = (entries, options) => index => {
+  const { findStartTimes, useIncrementalBoundaries } = options;
+  if (useIncrementalBoundaries) {
+    return entries.reduce((allIncrements, entry, i) => {
+      const { startTime, endTime } = entry || {};
+      const boundaryDiffMinutes = findStartTimes ? 0 : STEP_MINUTES;
+
+      if (i !== index && startTime && endTime) {
+        const startTotal = getTotalMinutesFromTime(startTime);
+        const endTotal = getTotalMinutesFromTime(endTime);
+
+        // Calculate the possible booking boundaries that fall between the end and start times:
+        // - determine how many 15 minute increments fall between the start and the end
+        // - create an array for that length
+        // - map the array to printed boundaries
+        const quartersBetween = Array((endTotal - startTotal) / STEP_MINUTES)
+          .fill()
+          .map((v, i) => printMinuteString(startTotal + i * STEP_MINUTES + boundaryDiffMinutes));
+
+        return allIncrements.concat(quartersBetween);
+      }
+
+      return allIncrements;
+    }, []);
+  } else {
+    return entries.reduce((allHours, entry, i) => {
+      const { startTime, endTime } = entry || {};
+      const boundaryDiff = findStartTimes ? 0 : 1;
+
+      if (i !== index && startTime && endTime) {
+        const startHour = Number.parseInt(startTime.split(':')[0]);
+        const endHour = Number.parseInt(endTime.split(':')[0]);
+        const hoursBetween = Array(endHour - startHour)
+          .fill()
+          .map((v, i) => printHourStrings(startHour + i + boundaryDiff));
+
+        return allHours.concat(hoursBetween);
+      }
+
+      return allHours;
+    }, []);
+  }
+};

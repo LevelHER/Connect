@@ -1,0 +1,28 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html charset=UTF-8" />
+</head>
+{{~#*inline "format-money"~}}
+{{money-amount money}}
+{{ money.currency }}
+{{~/inline~}}
+{{~#*inline "format-date"~}}
+{{#with transaction.listing.availability-plan}}
+{{date date format="h:mm a" tz=timezone}} on
+{{date date format="MMM d, YYYY" tz=timezone}}
+{{/with}}
+{{~/inline~}}
+{{#with transaction}}
+<div style="max-width:600px;margin:0 auto;padding:24px 12px;font-family:Arial,sans-serif;color:#484848">
+<h1 style="font-size:26px;line-height:1.3">Your booking for {{listing.title}} is scheduled</h1>
+<p style="font-size:16px;line-height:1.4">You have booked {{listing.title}} from {{> format-date date=booking.start}} to {{> format-date date=booking.end}}.</p>
+<p style="font-size:16px;line-height:1.4">You paid {{> format-money money=payin-total}} when you booked. You will not be charged again.</p>
+<p><a href="{{marketplace.url}}/order/{{url-encode id}}/" target="_blank" style="color:#FFF;background-color:#C4416B;border-radius:4px;font-size:15px;text-decoration:none;display:inline-block;padding:14px 28px">View order details</a></p>
+</div>
+{{/with}}
+<div style="max-width:600px;margin:0 auto;padding:0 12px 40px;font-family:Arial,sans-serif">
+<hr style="border:none;border-top:1px solid #E1E1E1;margin:20px 0" />
+<p style="font-size:12px;line-height:15px;color:#b7b7b7">You have received this email notification because you are a member of {{marketplace.name}}. If you no longer wish to receive these emails, please contact {{marketplace.name}} team.</p>
+</div>
+</html>

@@ -1,0 +1,1 @@
+New booking for {{transaction.listing.title}}

@@ -1,0 +1,121 @@
+{:format :v3,
+ :transitions
+ [{:name :transition/request-payment,
+   :actor :actor.role/customer,
+   :actions
+   [{:name :action/update-protected-data}
+    {:name :action/privileged-set-line-items}
+    {:name :action/stripe-create-payment-intent}],
+   :to :state/pending-payment,
+   :privileged? true}
+  {:name :transition/expire-payment,
+   :at
+   {:fn/plus
+    [{:fn/timepoint [:time/first-entered-state :state/pending-payment]}
+     {:fn/period ["PT15M"]}]},
+   :actions
+   [{:name :action/calculate-full-refund}
+    {:name :action/stripe-refund-payment}],
+   :from :state/pending-payment,
+   :to :state/payment-expired}
+  {:name :transition/confirm-payment,
+   :actor :actor.role/customer,
+   :actions
+   [{:name :action/stripe-confirm-payment-intent}
+    {:name :action/stripe-capture-payment-intent}],
+   :from :state/pending-payment,
+   :to :state/paid-unscheduled}
+  {:name :transition/schedule,
+   :actor :actor.role/customer,
+   :actions
+   [{:name :action/create-pending-booking, :config {:type :time}}
+    {:name :action/accept-booking}],
+   :from :state/paid-unscheduled,
+   :to :state/booked}
+  {:name :transition/cancel-unscheduled,
+   :actor :actor.role/operator,
+   :actions
+   [{:name :action/calculate-full-refund}
+    {:name :action/stripe-refund-payment}],
+   :from :state/paid-unscheduled,
+   :to :state/cancelled}
+  {:name :transition/complete,
+   :at
+   {:fn/plus
+    [{:fn/timepoint [:time/booking-end]} {:fn/period ["P14D"]}]},
+   :actions [{:name :action/stripe-create-payout}],
+   :from :state/booked,
+   :to :state/delivered}
+  {:name :transition/cancel,
+   :actor :actor.role/operator,
+   :actions
+   [{:name :action/calculate-full-refund}
+    {:name :action/stripe-refund-payment}
+    {:name :action/cancel-booking}],
+   :from :state/booked,
+   :to :state/cancelled}
+  {:name :transition/cancel-by-provider,
+   :actor :actor.role/provider,
+   :actions
+   [{:name :action/calculate-full-refund}
+    {:name :action/stripe-refund-payment}
+    {:name :action/cancel-booking}],
+   :from :state/booked,
+   :to :state/cancelled}
+  {:name :transition/review-1-by-provider,
+   :actor :actor.role/provider,
+   :actions [{:name :action/post-review-by-provider}],
+   :from :state/delivered,
+   :to :state/reviewed-by-provider}
+  {:name :transition/review-2-by-provider,
+   :actor :actor.role/provider,
+   :actions
+   [{:name :action/post-review-by-provider}
+    {:name :action/publish-reviews}],
+   :from :state/reviewed-by-customer,
+   :to :state/reviewed}
+  {:name :transition/review-1-by-customer,
+   :actor :actor.role/customer,
+   :actions [{:name :action/post-review-by-customer}],
+   :from :state/delivered,
+   :to :state/reviewed-by-customer}
+  {:name :transition/review-2-by-customer,
+   :actor :actor.role/customer,
+   :actions
+   [{:name :action/post-review-by-customer}
+    {:name :action/publish-reviews}],
+   :from :state/reviewed-by-provider,
+   :to :state/reviewed}
+  {:name :transition/expire-review-period,
+   :at
+   {:fn/plus
+    [{:fn/timepoint [:time/booking-end]} {:fn/period ["P7D"]}]},
+   :actions [],
+   :from :state/delivered,
+   :to :state/reviewed}
+  {:name :transition/expire-provider-review-period,
+   :at
+   {:fn/plus
+    [{:fn/timepoint [:time/booking-end]} {:fn/period ["P7D"]}]},
+   :actions [{:name :action/publish-reviews}],
+   :from :state/reviewed-by-customer,
+   :to :state/reviewed}
+  {:name :transition/expire-customer-review-period,
+   :at
+   {:fn/plus
+    [{:fn/timepoint [:time/booking-end]} {:fn/period ["P7D"]}]},
+   :actions [{:name :action/publish-reviews}],
+   :from :state/reviewed-by-provider,
+   :to :state/reviewed}],
+ :notifications
+ [{:name :notification/payment-received-customer, :on :transition/confirm-payment, :to :actor.role/customer, :template :prepaid-payment-received-customer}
+  {:name :notification/booking-scheduled-customer, :on :transition/schedule, :to :actor.role/customer, :template :prepaid-booking-scheduled-customer}
+  {:name :notification/booking-scheduled-provider, :on :transition/schedule, :to :actor.role/provider, :template :prepaid-booking-scheduled-provider}
+  {:name :notification/booking-cancelled-customer, :on :transition/cancel-by-provider, :to :actor.role/customer, :template :prepaid-booking-cancelled-customer}
+  {:name :notification/booking-money-paid, :on :transition/complete, :to :actor.role/provider, :template :booking-money-paid}
+  {:name :notification/review-period-start-provider, :on :transition/complete, :to :actor.role/provider, :template :booking-review-by-provider-wanted}
+  {:name :notification/review-period-start-customer, :on :transition/complete, :to :actor.role/customer, :template :booking-review-by-customer-wanted}
+  {:name :notification/review-by-provider-first, :on :transition/review-1-by-provider, :to :actor.role/customer, :template :booking-review-by-other-party-unpublished}
+  {:name :notification/review-by-customer-first, :on :transition/review-1-by-customer, :to :actor.role/provider, :template :booking-review-by-other-party-unpublished}
+  {:name :notification/review-by-provider-second, :on :transition/review-2-by-provider, :to :actor.role/customer, :template :booking-review-by-other-party-published}
+  {:name :notification/review-by-customer-second, :on :transition/review-2-by-customer, :to :actor.role/provider, :template :booking-review-by-other-party-published}]}

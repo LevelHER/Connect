@@ -1,0 +1,1 @@
+Payment received for {{transaction.listing.title}} - choose your date
